@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>醫護縮寫學習卡 - 全功能回饋版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', 'Noto Sans TC', sans-serif; background-color: #FFFFFF; color: #1F1F1F; overflow-x: hidden; touch-action: manipulation; }
+        .card-container { perspective: 1000px; width: 100%; max-width: 450px; height: 320px; position: relative; }
+        .card-inner {
+            position: relative; width: 100%; height: 100%; text-align: center;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d; cursor: pointer;
+        }
+        .card-inner.is-flipped { transform: rotateY(180deg); }
+        .card-face {
+            position: absolute; width: 100%; height: 100%; backface-visibility: hidden;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 2rem; border-radius: 1.5rem; border: 1px solid #E5E7EB;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.04);
+        }
+        .card-front { background-color: #F9FAFB; }
+        .card-back { background-color: #F0F7FF; transform: rotateY(180deg); color: #1A56DB; }
+        
+        /* 視覺回饋動畫 */
+        .feedback-overlay {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            font-size: 8rem; font-weight: bold; z-index: 50; pointer-events: none;
+            opacity: 0; transform: scale(0.5);
+        }
+        .animate-feedback { animation: feedbackPop 0.5s ease-out forwards; }
+        @keyframes feedbackPop {
+            0% { opacity: 0; transform: scale(0.4); }
+            30% { opacity: 0.9; transform: scale(1.1); }
+            100% { opacity: 0; transform: scale(1.3); }
+        }
+
+        .badge {
+            position: absolute; top: 1rem; right: 1rem; width: 28px; height: 28px;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: bold; opacity: 0; transition: all 0.3s;
+        }
+        .badge.show { opacity: 1; }
+        .badge-correct { background-color: #DCFCE7; color: #16A34A; }
+        .badge-wrong { background-color: #FEE2E2; color: #DC2626; }
+        .badge-skipped { background-color: #F3F4F6; color: #6B7280; }
+
+        .btn-circle {
+            width: 64px; height: 64px; border-radius: 50%; display: flex;
+            align-items: center; justify-content: center; transition: all 0.2s;
+            border: 1px solid #E5E7EB; background: white;
+        }
+        .btn-circle:active { transform: scale(0.9); background: #F3F4F6; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between py-10 px-6">
+
+    <div class="w-full max-w-[450px] space-y-4">
+        <div class="flex justify-between items-end">
+            <div>
+                <span id="current-mode" class="text-[10px] font-black text-blue-500 uppercase tracking-widest block mb-1">精進模式</span>
+                <span class="text-2xl font-bold tracking-tighter" id="counter">1 / --</span>
+            </div>
+            <div class="flex gap-1.5">
+                <div class="text-center px-2">
+                    <p class="text-[9px] font-bold text-gray-400 uppercase">學會</p>
+                    <p id="learned-stat" class="font-bold text-green-600">0</p>
+                </div>
+                <div class="text-center px-2 border-l">
+                    <p class="text-[9px] font-bold text-gray-400 uppercase">不熟</p>
+                    <p id="wrong-stat" class="font-bold text-red-600">0</p>
+                </div>
+                <div class="text-center px-2 border-l">
+                    <p class="text-[9px] font-bold text-gray-400 uppercase">跳過</p>
+                    <p id="skip-stat" class="font-bold text-gray-500">0</p>
+                </div>
+            </div>
+        </div>
+        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+            <div id="progress-fill" class="h-full bg-black transition-all duration-500" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div class="card-container">
+        <div id="feedback" class="feedback-overlay"></div>
+        <div id="card" class="card-inner">
+            <div class="card-face card-front">
+                <div id="badge-front" class="badge"></div>
+                <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-6">Question</span>
+                <p id="question" class="text-lg font-medium leading-snug text-gray-800 px-4"></p>
+            </div>
+            <div class="card-face card-back">
+                <span class="text-[10px] font-black text-blue-300 uppercase tracking-widest mb-6">Answer</span>
+                <p id="answer" class="text-xl font-bold px-4"></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="w-full max-w-[450px] flex flex-col items-center gap-8">
+        <div class="flex items-center gap-6">
+            <button id="mark-wrong" class="btn-circle shadow-sm">
+                <svg class="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            
+            <button id="mark-skip" class="flex flex-col items-center group">
+                <div class="w-12 h-12 rounded-full border border-gray-200 flex items-center justify-center bg-gray-50 group-active:scale-95 transition-all">
+                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg>
+                </div>
+                <span class="text-[9px] font-black text-gray-400 mt-2 tracking-tighter">SKIP</span>
+            </button>
+
+            <button id="mark-correct" class="btn-circle shadow-sm">
+                <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+            </button>
+        </div>
+        
+        <div class="flex gap-10 items-center text-[10px] font-black text-gray-300 uppercase tracking-widest">
+            <button id="prev" class="hover:text-black">PREV</button>
+            <button id="restart" class="hover:text-red-500 border-x px-6">RESET</button>
+            <button id="next" class="hover:text-black">NEXT</button>
+        </div>
+    </div>
+
+    <script>
+        // 內建數據
+        const allData = [
+            ["醫學縮寫「AAD」的英文全文為何？", "against-advise discharge"],
+            ["護理紀錄中看到「AAD」，其代表的中文意義為何？", "自動出院"],
+            ["縮寫「ABG」是指檢測動脈血中的哪項指標？", "動脈血氧氣體 (arterial blood gas)"],
+            ["給藥時間縮寫「AC」是指 _____。", "飯前 (ante cibum)"],
+            ["縮寫「A.D.」是指哪一個解剖部位？", "右耳 (auris dexter)"],
+            ["評估病人的「ADL」是指評估其 _____。", "日常生活活動 (activities of daily living)"],
+            ["縮寫「Adm」在病歷中代表的動作為何？", "入院 (admission)"],
+            ["縮寫「AFB」是指耐酸性桿菌，常用於檢測 _____。", "結核桿菌 (acid-fast bacillus)"],
+            ["縮寫「A/G」代表哪兩種蛋白質的比率？", "白蛋白與球蛋白 (albumin/globulin)"],
+            ["時間縮寫「AM」是指 _____。", "上午 (ante meridian)"],
+            ["藥劑包裝縮寫「amp.」是指 _____。", "安瓿 (ampule)"],
+            ["X 光攝影方向「AP view」是指 _____ 方向。", "前後位攝影 (anteroposterior view)"],
+            ["縮寫「Aq」代表該物質具有何種性質？", "水溶性的 (aqueous, aqua)"],
+            ["縮寫「A.S.」是指哪一個解剖部位？", "左耳 (auris sinister)"],
+            ["縮寫「A.U.」是指哪一個解剖部位？", "雙耳 (auris unitas)"],
+            ["檢驗項目「B/C」是指 _____。", "血液培養 (blood culture)"],
+            ["給藥頻率「b.i.d」代表 _____。", "一天兩次 (bis in die)"],
+            ["縮寫「BMR」代表基礎 _____ 率。", "代謝率 (basal metabolic rate)"],
+            ["縮寫「BP」是指 _____。", "血壓 (blood pressure)"],
+            ["護理單位縮寫「BR」是指 _____。", "嬰兒室 (baby room)"],
+            ["縮寫「BSA」的全稱為 _____。", "體表面積 (body surface area)"],
+            ["檢驗項目「BT」是指 _____ 時間。", "出血時間 (bleeding time)"],
+            ["檢驗項目「BUN」是指檢測血液中的 _____。", "尿素氮 (blood urea nitrogen)"],
+            ["常規檢驗「BUS」包含血液、尿液與 _____。", "糞便 (Blood, Urine, Stool)"],
+            ["體重紀錄的縮寫通常為 _____。", "BW (body weight)"],
+            ["代表「和、與 (with)」的縮寫符號為 _____。", "c (with)"],
+            ["藥劑形式縮寫「Cap」是指 _____。", "膠囊 (capsula)"],
+            ["縮寫「CBC」代表全 _____ 計數。", "血球計數 (complete blood count)"],
+            ["病歷中的「C.C.」代表 _____。", "主要求診原因 (chief complaint)"],
+            ["縮寫「Ccr」是指肌酸酐的 _____ 率。", "廓清率 (creatinine clearance rate)"],
+            ["護理措施縮寫「CD」是指 _____。", "換藥 (change dressing)"],
+            ["護理單位縮寫「CICU」代表 _____ 加護中心。", "心臟病加護中心"],
+            ["縮寫「C.M.」是指 _____。", "明晨 (coming morning)"],
+            ["評估病人意識狀態的縮寫為 _____。", "Con's (conscious)"],
+            ["護理措施縮寫「CPT」是指 _____ 治療。", "胸部物理治療 (chest physical therapy)"],
+            ["職位縮寫「CR」代表 _____ 住院醫師。", "住院總醫師 (chief resident)"],
+            ["檢查縮寫「C.T. scan」是指 _____。", "電腦斷層掃描"],
+            ["檢查縮寫「CXR」是指 _____。", "胸部 X 光攝影"],
+            ["醫囑縮寫「D.C.」代表 _____。", "停止、取消 (discontinue)"],
+            ["藥物處理縮寫「dil」代表 _____。", "稀釋 (dilute)"],
+            ["急診縮寫「DOA」是指 _____。", "到院前死亡 (dead on arrival)"],
+            ["縮寫「DW」是指哪種水？", "蒸餾水 (distilled water)"],
+            ["心電圖檢查的縮寫為 _____。", "ECG 或 EKG"],
+            ["急診部的縮寫通常為 _____。", "ED 或 ER"],
+            ["腦波檢查的縮寫為 _____。", "EEG (electroencephalogram)"],
+            ["肌電圖檢查的縮寫為 _____。", "EMG (electromyogram)"],
+            ["縮寫「FBS」是指檢測 _____ 血糖。", "空腹血糖 (fasting blood sugar)"],
+            ["血液製品「FFP」是指 _____。", "新鮮冷凍血漿 (fresh frozen plasma)"],
+            ["病歷中的「FH」代表 _____ 病史。", "家族病史 (family history)"],
+            ["指尖血糖檢測的縮寫通常為 _____。", "F/S (finger sugar)"],
+            ["評估昏迷程度的「GCS」全稱為 _____ 指數。", "格拉斯哥昏迷指數"],
+            ["給藥滴數單位「gtt」來自拉丁文 _____。", "gutta (滴)"],
+            ["葡萄糖耐量測驗的縮寫為 _____。", "GTT (glucose tolerance test)"],
+            ["血紅素的縮寫為 _____。", "Hb (hemoglobin)"],
+            ["給藥時間「h.s.」是指 _____。", "睡前 (at bed time)"],
+            ["血液檢查中的「Ht.」代表 _____。", "血比容 (hematocrit)"],
+            ["病歷中的「Hx」代表 _____。", "病史 (history)"],
+            ["肌肉注射法的縮寫為 _____。", "IM (intramuscular)"],
+            ["靜脈注射或靜脈內的縮寫為 _____。", "IV (intravenous)"],
+            ["記錄輸入與排出的縮寫為 _____。", "I & O (intake and output)"],
+            ["縮寫「MBD」代表許可 _____ 出院。", "許可出院 (may be discharged)"],
+            ["縮寫「NPO」是指 _____。", "禁食 (nothing by mouth)"],
+            ["生理食鹽水的縮寫為 _____。", "N/S (normal saline)"],
+            ["糞便潛血反應檢查的縮寫為 _____。", "OB (occult blood)"],
+            ["部位縮寫「O.D.」是指 _____。", "右眼 (oculus dexter)"],
+            ["部位縮寫「O.S.」是指 _____。", "左眼 (oculus sinister)"],
+            ["部位縮寫「O.U.」是指 _____。", "雙眼 (oculus unitas)"],
+            ["給藥時間縮寫「p.c.」是指 _____。", "飯後 (post cibum)"],
+            ["理學檢查的縮寫為 _____。", "PE (physical examination)"],
+            ["病歷中的「PI」代表 _____ 病況。", "現在病況 (present illness)"],
+            ["時間縮寫「PM」是指 _____。", "下午 (post meridian)"],
+            ["給藥方式縮寫「PO」是指 _____。", "口服 (per os)"],
+            ["醫囑縮寫「prn」代表 _____ 時給予。", "需要時給予 (pro re nata)"],
+            ["護理措施「PROM」是指 _____ 關節運動。", "被動關節運動"],
+            ["給藥頻率「qd」代表 _____。", "每天 (quaque die)"],
+            ["給藥頻率「qid」代表每天 _____ 次。", "四次 (quarter in diem)"],
+            ["縮寫「R/O」代表的意義是 _____。", "疑似、排除中 (rule out)"],
+            ["全關節運動的縮寫為 _____。", "ROM (range of motion)"],
+            ["皮下注射法的縮寫為 _____。", "SC (subcutaneous)"],
+            ["舌下給藥途徑的縮寫為 _____。", "SL (sublingual)"],
+            ["醫囑縮寫「stat.」代表 _____。", "立即 (statim)"],
+            ["給藥頻率「tid」代表每天 _____ 次。", "三次 (ter in diem)"],
+            ["全腸道外營養法的縮寫為 _____。", "TPN"],
+            ["生命徵象中的「TPR」是指體溫、脈搏與 _____。", "呼吸 (Respiration)"],
+            ["尿液分析的縮寫為 _____。", "U/A (urinalysis)"],
+            ["白血球的縮寫為 _____。", "WBC (white blood cell)"],
+            ["骨科術語「abd」是指 _____。", "外展 (abduction)"],
+            ["骨科術語「add」是指 _____。", "內收 (adduction)"],
+            ["心臟科疾病「AMI」是指急性 _____ 梗塞。", "心肌梗塞"],
+            ["心律不整「Af」是指心房 _____。", "纖維顫動 (atrial fibrillation)"],
+            ["腎臟科疾病「ARF」是指急性 _____ 衰竭。", "腎衰竭 (acute renal failure)"],
+            ["男性常見疾病「BPH」是指良性 _____ 肥大。", "前列腺 (prostatic)"],
+            ["心臟手術「CABG」是指冠狀動脈 _____ 移植。", "繞道移植 (bypass graft)"],
+            ["心臟疾病「CAD」是指 _____ 疾病。", "冠狀動脈疾病"],
+            ["心臟疾病「CHF」全稱為 _____ 心臟衰竭。", "充血性心臟衰竭 (congestive)"],
+            ["血液檢查「PT」是指 _____ 時間。", "凝血酶原時間"],
+            ["血液檢查「PTT」是指部分 _____ 時間。", "凝血活酶時間"],
+            ["手術前準備的縮寫為 _____。", "pre-op"],
+            ["手術後護理的縮寫為 _____。", "post-op"],
+            ["藥物過敏紀錄「NKA」是指無已知 _____。", "過敏原 (no known allergies)"],
+            ["臨床專科「Oph」是指 _____ 科。", "眼科"],
+            ["臨床專科「Ped」是指 _____ 科。", "兒科"],
+            ["臨床專科「GI」是指 _____ 內科。", "腸胃 (gastrointestinal)"],
+            ["臨床專科「GS」是指 _____ 外科。", "一般外科 (general surgery)"],
+            ["臨床專科「ENT」是指 _____ 喉科。", "耳鼻喉科"],
+            ["護理職稱「RN」代表 _____。", "護理師 (registered nurse)"],
+            ["職稱「VS」代表 _____ 醫師。", "主治醫師 (visiting staff)"],
+            ["生命徵象的總縮寫為 _____。", "V/S (vital signs)"],
+            ["醫囑「SOS」是指如有需要給予 _____ 次。", "一次 (si opus sit)"],
+            ["給藥頻率「qod」代表每 _____ 天一次。", "隔天"],
+            ["給藥頻率「qh」代表每 _____ 小時。", "一小時 (quaque hora)"],
+            ["給藥頻率「qm」代表每天 _____。", "早晨 (quaque die ante meridian)"],
+            ["給藥頻率「qn」代表每天 _____。", "晚上 (quaque nocte)"],
+            ["紅血球濃厚液的縮寫為 _____。", "PRBC"],
+            ["血小板計數的縮寫為 _____。", "PC (platelet count)"],
+            ["盤尼西林皮膚試驗的縮寫為 _____。", "PST"],
+            ["尿液培養的縮寫為 _____。", "U/C (urine culture)"],
+            ["紅血球的縮寫為 _____。", "RBC (red blood cell)"],
+            ["紅血球沉降率的縮寫為 _____。", "ESR"],
+            ["心臟先天缺陷「ASD」是指心房 _____ 缺損。", "中隔 (septal)"],
+            ["耳鼻喉科疾病「BOM」是指雙側 _____ 炎。", "中耳炎 (bilateral otitis media)"],
+            ["透析方式「CAPD」是指連續性可活動式 _____ 透析。", "腹膜透析"],
+            ["總膽管結石的縮寫為 _____。", "CBD stone"],
+            ["部位「AK」是指 _____ 處。", "膝上 (above knee)"],
+            ["部位「BK」是指 _____ 處。", "膝下 (below knee)"],
+            ["部位「AE」是指 _____ 處。", "肘上 (above elbow)"],
+            ["部位「BE」是指 _____ 處。", "肘下 (below elbow)"],
+            ["腎臟疾病「AGN」是指急性 _____ 腎炎。", "腎絲球 (glomerulonephritis)"],
+            ["疾病縮寫「ALS」俗稱為漸凍症，全稱為 _____。", "肌萎縮性脊髓側索硬化症"],
+            ["給藥單位「gtt」的拉丁文全文為 _____。", "gutta"],
+            ["給藥頻率「qid」的拉丁文全文為 _____。", "quarter in diem"],
+            ["給藥時間「i.c.」是指 _____。", "兩餐間 (inter cibus)"],
+            ["給藥方式「p.r.」是指經由 _____ 給予。", "直腸 (per rectum)"],
+            ["劑型縮寫「liq」代表 _____。", "液體 (liquid)"],
+            ["劑型縮寫「oint」代表 _____。", "藥膏 (ointment)"],
+            ["劑型縮寫「pulv」代表 _____。", "粉劑 (pulvis)"],
+            ["劑型縮寫「susp」代表 _____ 液。", "懸浮液 (suspension)"],
+            ["劑型縮寫「syr」代表 _____。", "糖漿 (syrup)"],
+            ["劑型縮寫「tab」代表 _____。", "錠劑 (tablet)"],
+            ["單位縮寫「OR」代表 _____ 室。", "手術室 (operating room)"],
+            ["檢驗「OGTT」全稱為口服 _____ 耐量試驗。", "葡萄糖"],
+            ["過敏紀錄「NKA」的英文全文為 _____。", "no known allergies"],
+            ["病歷中過往病史的縮寫通常為 _____。", "PMH 或 PH"],
+            ["問題導向紀錄法的縮寫為 _____。", "POMR"],
+            ["外科部的縮寫通常為 _____。", "Surg"],
+            ["職稱「OT」代表 _____ 治療師。", "職能治療師"],
+            ["職稱「PT」代表 _____ 治療師。", "物理治療師"],
+            ["職稱「ST」代表 _____ 治療師。", "語言治療師"],
+            ["職稱「RT」代表 _____ 治療師。", "呼吸治療師"],
+            ["職稱「NP」代表 _____ 護理師。", "專科護理師 (nurse practitioner)"],
+            ["職稱「HN」代表 _____。", "護理長 (head nurse)"],
+            ["職稱「SN」代表的身分為 _____。", "護生 (student nurse)"],
+            ["職稱「SPN」代表的身分為 _____。", "特別護理師 (special nurse)"],
+            ["檢驗項目「Sp.gr」代表的是 _____。", "尿液比重"],
+            ["縮寫「ALL」代表急性 _____ 白血病。", "淋巴球性 (lymphocytic)"],
+            ["縮寫「AML」代表急性 _____ 白血病。", "骨髓性 (myelocytic)"],
+            ["縮寫「AGN」的全稱為 _____。", "acute glomerulonephritis"],
+            ["縮寫「AMI」中的「I」代表 _____。", "infarction (梗塞)"],
+            ["縮寫「AOM」是指 _____ 炎。", "急性中耳炎"],
+            ["縮寫「APR」是指腹 _____ 切除術。", "會陰 (perineal)"],
+            ["縮寫「AS」在瓣膜病變中代表主動脈瓣 _____。", "狹窄 (stenosis)"],
+            ["縮寫「AS」在血管病變中代表 _____。", "動脈硬化 (arteriosclerosis)"],
+            ["縮寫「AST」是指眼科的 _____。", "散光 (astigmatism)"],
+            ["縮寫「AVF」中的 F 代表 _____。", "fistula (廔管)"],
+            ["縮寫「BBB」在心電圖中代表 _____ 傳導阻滯。", "束枝 (bundle branch)"],
+            ["縮寫「BPH」中的「P」代表 _____。", "prostatic (前列腺的)"],
+            ["縮寫「Ca」在病歷中代表 _____。", "癌症 (cancer)"],
+            ["縮寫「CAD」中的「A」代表 _____。", "artery (動脈)"],
+            ["「qod」是指每 _____ 天給藥一次。", "二"],
+            ["「tid」是一天給藥 _____ 次。", "三"],
+            ["「qid」是一天給藥 _____ 次。", "四"],
+            ["「SOS」中 O 的意義是 _____。", "one (一次)"],
+            ["「BSA」中 S 的意義是 _____。", "surface (表面)"],
+            ["「CBC」中 B 的意義是 _____。", "blood (血液)"],
+            ["「Ccr」中 C 的意義是 _____。", "clearance (廓清)"],
+            ["「CXR」中 X 的意義是 _____。", "X-ray (X光)"],
+            ["「FBS」中 F 的意義是 _____。", "fasting (空腹)"],
+            ["「FFP」中 F 的意義是 _____。", "fresh (新鮮)"],
+            ["「GCS」中 C 的意義是 _____。", "coma (迷)"],
+            ["「ICU」中 I 的意義是 _____。", "intensive (加護)"],
+            ["「NPO」中 O 的意義是拉丁文 _____ (口)。", "os"],
+            ["「ROM」中 M 的意義是 _____。", "motion (運動)"],
+            ["「TPN」中 N 的意義是 _____。", "nutrition (營養)"],
+            ["「V/S」中 V 的意義是 _____。", "vital (生命的)"]
+        ];
+
+        let index = 0;
+        let stats = {}; 
+        let currentQueue = allData.map((d, i) => ({ q: d[0], a: d[1], origIdx: i }));
+
+        const card = document.getElementById('card');
+        const feedback = document.getElementById('feedback');
+        const badgeFront = document.getElementById('badge-front');
+
+        function updateDisplay() {
+            card.classList.remove('is-flipped');
+            setTimeout(() => {
+                const item = currentQueue[index];
+                document.getElementById('question').textContent = item.q;
+                document.getElementById('answer').textContent = item.a;
+                document.getElementById('counter').textContent = `${index + 1} / ${currentQueue.length}`;
+                document.getElementById('progress-fill').style.width = `${((index + 1) / currentQueue.length) * 100}%`;
+                
+                // 更新頂部統計
+                const vals = Object.values(stats);
+                document.getElementById('learned-stat').textContent = vals.filter(v => v === 'learned').length;
+                document.getElementById('wrong-stat').textContent = vals.filter(v => v === 'wrong').length;
+                document.getElementById('skip-stat').textContent = vals.filter(v => v === 'skipped').length;
+
+                // 更新卡片小徽章
+                const status = stats[item.origIdx];
+                badgeFront.className = 'badge';
+                if (status === 'learned') {
+                    badgeFront.classList.add('badge-correct', 'show');
+                    badgeFront.innerHTML = 'O';
+                } else if (status === 'wrong') {
+                    badgeFront.classList.add('badge-wrong', 'show');
+                    badgeFront.innerHTML = 'X';
+                } else if (status === 'skipped') {
+                    badgeFront.classList.add('badge-skipped', 'show');
+                    badgeFront.innerHTML = '→';
+                }
+            }, 150);
+        }
+
+        function triggerFeedback(type) {
+            let symbol = '';
+            let colorClass = '';
+            
+            if (type === 'learned') { symbol = 'O'; colorClass = 'text-green-500'; }
+            else if (type === 'wrong') { symbol = 'X'; colorClass = 'text-red-500'; }
+            else { symbol = '→'; colorClass = 'text-gray-400'; }
+
+            feedback.textContent = symbol;
+            feedback.className = `feedback-overlay animate-feedback ${colorClass}`;
+            
+            feedback.addEventListener('animationend', () => {
+                feedback.className = 'feedback-overlay';
+            }, { once: true });
+        }
+
+        function mark(type) {
+            const item = currentQueue[index];
+            stats[item.origIdx] = type;
+            triggerFeedback(type);
+            
+            setTimeout(() => {
+                if (index < currentQueue.length - 1) {
+                    index++;
+                    updateDisplay();
+                } else {
+                    finishSession();
+                }
+            }, 450);
+        }
+
+        function finishSession() {
+            const wrongIdxs = currentQueue.filter(d => stats[d.origIdx] === 'wrong').map(d => d.origIdx);
+            const skipIdxs = currentQueue.filter(d => stats[d.origIdx] === 'skipped').map(d => d.origIdx);
+            const needReview = [...new Set([...wrongIdxs, ...skipIdxs])];
+
+            if (needReview.length > 0) {
+                if (confirm(`本輪結束！\n不熟：${wrongIdxs.length} 題\n跳過：${skipIdxs.length} 題\n\n是否對這些題目進行複習？`)) {
+                    currentQueue = needReview.map(i => ({ q: allData[i][0], a: allData[i][1], origIdx: i }));
+                    index = 0;
+                    document.getElementById('current-mode').textContent = "複習模式";
+                    document.getElementById('current-mode').classList.replace('text-blue-500', 'text-red-500');
+                    updateDisplay();
+                    return;
+                }
+            } else {
+                alert("恭喜！全數通過測試！");
+            }
+            resetAll();
+        }
+
+        function resetAll() {
+            stats = {}; index = 0;
+            currentQueue = allData.map((d, i) => ({ q: d[0], a: d[1], origIdx: i }));
+            document.getElementById('current-mode').textContent = "精進模式";
+            document.getElementById('current-mode').classList.replace('text-red-500', 'text-blue-500');
+            updateDisplay();
+        }
+
+        // 事件綁定
+        card.onclick = () => card.classList.toggle('is-flipped');
+        document.getElementById('mark-correct').onclick = () => mark('learned');
+        document.getElementById('mark-wrong').onclick = () => mark('wrong');
+        document.getElementById('mark-skip').onclick = () => mark('skipped');
+        document.getElementById('next').onclick = () => { if (index < currentQueue.length - 1) { index++; updateDisplay(); } };
+        document.getElementById('prev').onclick = () => { if (index > 0) { index--; updateDisplay(); } };
+        document.getElementById('restart').onclick = () => { if(confirm("確定要重置所有進度嗎？")) resetAll(); };
+
+        updateDisplay();
+    </script>
+</body>
+</html>
